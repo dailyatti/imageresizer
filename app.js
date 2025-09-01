@@ -177,6 +177,85 @@ class ImageFlowApp {
 
   async setupPeerConnection() {
     try {
+      // Try local network server first, fallback to external PeerJS
+      const localServerConfig = await this.tryLocalServer();
+      
+      if (localServerConfig) {
+        console.log('🏠 Using local network server');
+        await this.setupLocalNetworkConnection(localServerConfig);
+      } else {
+        console.log('🌐 Falling back to external PeerJS server');
+        await this.setupExternalPeerConnection();
+      }
+    } catch (error) {
+      console.error('Failed to setup any connection:', error);
+      this.updateConnectionStatus('disconnected', 'Offline mode');
+    }
+  }
+
+  async tryLocalServer() {
+    try {
+      // Check if local server is running with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      
+      const response = await fetch('http://localhost:8080/api/status', {
+        method: 'GET',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          ip: data.ip,
+          port: data.port,
+          wsUrl: `ws://${data.ip}:${data.port}/ws`
+        };
+      }
+    } catch (error) {
+      console.log('Local server not available:', error.message);
+    }
+    return null;
+  }
+
+  async setupLocalNetworkConnection(config) {
+    this.localServer = config;
+    this.updateConnectionStatus('connecting', 'Connecting to local network...');
+    
+    // Setup WebSocket connection to local server
+    this.ws = new WebSocket(config.wsUrl);
+    
+    this.ws.onopen = () => {
+      console.log('🏠 Connected to local network server');
+      this.updateConnectionStatus('connected', `Local Network - ${config.ip}`);
+      this.showNotification('Helyi hálózati szerver aktív!', 'success');
+    };
+    
+    this.ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        this.handleLocalServerMessage(data);
+      } catch (error) {
+        console.error('Invalid message from local server:', error);
+      }
+    };
+    
+    this.ws.onclose = () => {
+      console.log('🏠 Local server connection closed');
+      this.updateConnectionStatus('connecting', 'Reconnecting...');
+      setTimeout(() => this.setupExternalPeerConnection(), 2000);
+    };
+    
+    this.ws.onerror = (error) => {
+      console.error('Local server connection error:', error);
+      this.setupExternalPeerConnection();
+    };
+  }
+
+  async setupExternalPeerConnection() {
+    try {
       // Advanced PeerJS configuration for better reliability
       const peerConfig = {
         host: '0.peerjs.com',
@@ -192,7 +271,7 @@ class ImageFlowApp {
         }
       };
 
-      this.updateConnectionStatus('connecting', 'Connecting...');
+      this.updateConnectionStatus('connecting', 'Connecting to internet...');
       this.peer = new Peer(peerConfig);
       
       // Connection timeout handling
@@ -267,9 +346,131 @@ class ImageFlowApp {
     }
   }
 
+  // Handle messages from local server
+  handleLocalServerMessage(data) {
+    switch (data.type) {
+      case 'welcome':
+        this.clientId = data.clientId;
+        this.serverInfo = data.serverInfo;
+        this.generateLocalQRCode();
+        break;
+        
+      case 'room-created':
+        this.roomId = data.roomId;
+        this.generateLocalQRCode();
+        break;
+        
+      case 'room-joined':
+        this.roomId = data.roomId;
+        this.updateDeviceList();
+        break;
+        
+      case 'client-joined':
+      case 'client-left':
+        this.updateDeviceList();
+        break;
+        
+      case 'device-list':
+        this.handleDeviceList(data.devices);
+        break;
+        
+      case 'file-transfer-start':
+      case 'file-chunk':
+      case 'file-complete':
+        this.handleLocalFileTransfer(data);
+        break;
+        
+      case 'webrtc-offer':
+      case 'webrtc-answer':
+      case 'webrtc-ice-candidate':
+        this.handleLocalWebRTCSignaling(data);
+        break;
+        
+      default:
+        console.log('Unknown local server message:', data.type);
+    }
+  }
+
   async generateQRCode() {
-    if (!this.peer || !this.peer.id) {
+    if (this.localServer) {
+      this.generateLocalQRCode();
+    } else if (this.peer && this.peer.id) {
+      this.generatePeerJSQRCode();
+    } else {
       setTimeout(() => this.generateQRCode(), 1000);
+    }
+  }
+
+  async generateLocalQRCode() {
+    if (!this.localServer || !this.clientId) {
+      setTimeout(() => this.generateLocalQRCode(), 1000);
+      return;
+    }
+    
+    const qrContainer = document.getElementById('qrCode');
+    if (!qrContainer) return;
+
+    // Create room if not exists
+    if (!this.roomId) {
+      this.ws.send(JSON.stringify({
+        type: 'create-room',
+        roomName: `ImageFlow ${new Date().toLocaleTimeString('hu-HU')}`
+      }));
+      return;
+    }
+
+    const connectionUrl = `http://${this.localServer.ip}:${this.localServer.port}/?room=${this.roomId}`;
+    
+    try {
+      qrContainer.innerHTML = '<div class="loading-spinner mx-auto"></div>';
+      
+      const canvas = await QRCode.toCanvas(connectionUrl, {
+        width: 220,
+        margin: 3,
+        errorCorrectionLevel: 'H',
+        type: 'image/png',
+        quality: 1,
+        color: {
+          dark: '#667eea',
+          light: '#ffffff'
+        },
+        rendererOpts: {
+          quality: 1
+        }
+      });
+      
+      canvas.style.borderRadius = '12px';
+      canvas.style.boxShadow = '0 10px 25px rgba(102, 126, 234, 0.2)';
+      canvas.style.border = '3px solid #667eea';
+      
+      qrContainer.innerHTML = '';
+      qrContainer.appendChild(canvas);
+      
+      const deviceInfo = document.createElement('div');
+      deviceInfo.className = 'text-center mt-4';
+      deviceInfo.innerHTML = `
+        <div class="text-xs text-slate-600 dark:text-slate-400 mb-2">🏠 Helyi Hálózat:</div>
+        <div class="font-mono text-sm bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-lg">
+          ${this.localServer.ip}:${this.localServer.port}
+        </div>
+        <div class="text-xs text-green-600 dark:text-green-400 mt-2">
+          Szoba: ${this.roomId}
+        </div>
+        <div class="text-xs text-slate-500 mt-1">
+          🔒 Csak ugyanazon WiFi hálózaton működik
+        </div>
+      `;
+      qrContainer.appendChild(deviceInfo);
+      
+    } catch (error) {
+      console.error('Local QR Code generation failed:', error);
+      this.fallbackToExternalQR();
+    }
+  }
+
+  async generatePeerJSQRCode() {
+    if (!this.peer || !this.peer.id) {
+      setTimeout(() => this.generatePeerJSQRCode(), 1000);
       return;
     }
     
@@ -1861,6 +2062,141 @@ class ImageFlowApp {
     }
     this.hideFileTransferProgress(transferId);
     this.showNotification('Fájlátvitel megszakítva', 'info');
+  }
+
+  // Local server file transfer handlers
+  handleLocalFileTransfer(data) {
+    switch (data.type) {
+      case 'file-transfer-start':
+        this.handleLocalTransferStart(data);
+        break;
+      case 'file-chunk':
+        this.handleLocalFileChunk(data);
+        break;
+      case 'file-complete':
+        this.handleLocalTransferComplete(data);
+        break;
+    }
+  }
+
+  handleLocalTransferStart(data) {
+    this.activeTransfers = this.activeTransfers || new Map();
+    this.activeTransfers.set(data.transferId, {
+      fileName: data.fileName,
+      fileSize: data.fileSize,
+      totalChunks: data.totalChunks,
+      chunks: new Array(data.totalChunks),
+      receivedChunks: 0,
+      from: data.from
+    });
+    
+    this.showFileTransferProgress(data.transferId, data.fileName, 'receiving', 0, data.totalChunks);
+    this.showNotification(`Fájl fogadása: ${data.fileName}`, 'info');
+  }
+
+  handleLocalFileChunk(data) {
+    const transfer = this.activeTransfers.get(data.transferId);
+    if (!transfer) return;
+    
+    transfer.chunks[data.chunkIndex] = data.chunk;
+    transfer.receivedChunks++;
+    
+    this.updateFileTransferProgress(data.transferId, transfer.receivedChunks, transfer.totalChunks);
+    
+    if (transfer.receivedChunks === transfer.totalChunks) {
+      this.completeLocalFileTransfer(data.transferId);
+    }
+  }
+
+  completeLocalFileTransfer(transferId) {
+    const transfer = this.activeTransfers.get(transferId);
+    if (!transfer) return;
+    
+    const fileData = transfer.chunks.join('');
+    
+    const link = document.createElement('a');
+    link.href = fileData;
+    link.download = transfer.fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    this.activeTransfers.delete(transferId);
+    this.hideFileTransferProgress(transferId);
+    this.showNotification(`${transfer.fileName} sikeresen letöltve!`, 'success');
+  }
+
+  handleLocalWebRTCSignaling(data) {
+    // Handle WebRTC signaling through local server
+    console.log('Local WebRTC signaling:', data);
+    // Implementation depends on specific WebRTC needs
+  }
+
+  handleDeviceList(devices) {
+    // Update device list with local network devices
+    this.networkDevices = devices;
+    this.updateDeviceList();
+  }
+
+  // Send file through local server
+  async sendFileViaLocalServer(imageId, targetDeviceId) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.showNotification('Helyi szerver kapcsolat nincs aktív!', 'error');
+      return;
+    }
+
+    const image = this.images.find(img => img.id == imageId);
+    if (!image) {
+      this.showNotification('Kép nem található!', 'error');
+      return;
+    }
+
+    try {
+      const fileData = image.processedSrc || image.src;
+      const fileName = image.processed ? `processed_${image.name}` : image.name;
+      const transferId = Date.now() + Math.random();
+      const chunkSize = 16384;
+      const totalChunks = Math.ceil(fileData.length / chunkSize);
+
+      // Send transfer start
+      this.ws.send(JSON.stringify({
+        type: 'file-transfer-start',
+        transferId: transferId,
+        fileName: fileName,
+        fileSize: this.calculateDataUrlSize(fileData),
+        totalChunks: totalChunks,
+        targetClient: targetDeviceId
+      }));
+
+      this.showFileTransferProgress(transferId, fileName, 'sending', 0, totalChunks);
+
+      // Send chunks
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, fileData.length);
+        const chunk = fileData.slice(start, end);
+
+        this.ws.send(JSON.stringify({
+          type: 'file-chunk',
+          transferId: transferId,
+          chunkIndex: i,
+          chunk: chunk,
+          targetClient: targetDeviceId
+        }));
+
+        this.updateFileTransferProgress(transferId, i + 1, totalChunks);
+        
+        // Small delay to prevent overwhelming
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
+      this.hideFileTransferProgress(transferId);
+      this.showNotification(`${fileName} elküldve helyi hálózaton!`, 'success');
+
+    } catch (error) {
+      console.error('Local file transfer failed:', error);
+      this.showNotification('Helyi fájlátvitel sikertelen!', 'error');
+    }
   }
 
   // Batch download

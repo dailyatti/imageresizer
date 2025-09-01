@@ -1,6 +1,40 @@
 # ImageFlow Pro
 
-Professional, client-side image processing with batch resizing, lossless conversions, P2P file sharing, and full PWA support.
+Professional, client-side image processing with batch resizing, lossless conversions, **local network sharing**, P2P file sharing, and full PWA support.
+
+## 🏠 **Új Helyi Hálózati Szerver Funkció**
+
+Az ImageFlow Pro most már támogatja a helyi WiFi hálózaton történő fájlmegosztást ideiglenes szerver segítségével!
+
+### **Gyors Indítás:**
+
+1. **Windows felhasználóknak:**
+   ```cmd
+   start-local-server.bat
+   ```
+
+2. **Manuális indítás:**
+   ```bash
+   # Függőségek telepítése (csak egyszer)
+   npm install
+
+   # Szerver indítása
+   npm start
+   # vagy
+   node local-server.js
+   ```
+
+3. **Használat:**
+   - Nyissa meg a böngészőt: `http://localhost:8080` vagy az automatikusan megjelenített helyi IP címen
+   - Más eszközök csatlakozhatnak a QR kód segítségével
+   - Csak ugyanazon WiFi hálózaton működik (biztonságos!)
+
+### **Helyi Szerver Előnyei:**
+- 🏠 **Saját Hálózat**: Működik offline, internet nélkül is
+- 🔒 **Biztonságos**: Csak ugyanazon WiFi hálózaton elérhető
+- ⚡ **Gyors**: Direkt kapcsolat, nincs külső szerverre szükség
+- 📱 **Mobil Kompatibilis**: QR kóddal egyszerű csatlakozás
+- 🔄 **Automatikus Fallback**: Ha nincs helyi szerver, külső PeerJS-re vált
 
 ## Features
 

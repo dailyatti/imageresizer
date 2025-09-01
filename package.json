@@ -1,0 +1,39 @@
+{
+  "name": "imageflow-pro-local",
+  "version": "1.0.0",
+  "description": "ImageFlow Pro - Local Network Server for WiFi-based file sharing",
+  "main": "local-server.js",
+  "scripts": {
+    "start": "node local-server.js",
+    "dev": "node local-server.js",
+    "server": "node local-server.js",
+    "install-deps": "npm install",
+    "test": "echo \"Local server ready for testing\" && exit 0"
+  },
+  "keywords": [
+    "image",
+    "processing",
+    "local",
+    "network",
+    "wifi",
+    "sharing",
+    "webrtc",
+    "qr-code"
+  ],
+  "author": "ImageFlow Pro Team",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dailyatti/imageresizer.git"
+  },
+  "homepage": "https://github.com/dailyatti/imageresizer",
+  "bugs": {
+    "url": "https://github.com/dailyatti/imageresizer/issues"
+  }
+}
