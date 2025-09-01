@@ -106,14 +106,7 @@ class ImageFlowApp {
       btn.addEventListener('click', (e) => this.applyPreset(e.target.dataset.preset));
     });
 
-    // Quality slider
-    const qualitySlider = document.getElementById('qualitySlider');
-    const qualityValue = document.getElementById('qualityValue');
-    if (qualitySlider && qualityValue) {
-      qualitySlider.addEventListener('input', (e) => {
-        qualityValue.textContent = `${e.target.value}%`;
-      });
-    }
+    // Quality is now fixed at 100% (lossless) - no slider needed
 
     // Device connection
     const connectDeviceBtn = document.getElementById('connectDevice');
@@ -958,11 +951,10 @@ class ImageFlowApp {
     const config = presets[preset];
     if (!config) return;
     
-    document.getElementById('customWidth').value = config.width;
+    document.getElementById('customWidth').value = config.width || '';
     document.getElementById('customHeight').value = config.height || '';
-    document.getElementById('qualitySlider').value = config.quality;
-    document.getElementById('qualityValue').textContent = `${config.quality}%`;
     document.getElementById('quickFormat').value = config.format;
+    // Quality is always 100% lossless - no slider to set
     
     this.showNotification(`${preset.toUpperCase()} preset alkalmazva`, 'info');
   }
@@ -974,7 +966,7 @@ class ImageFlowApp {
     }
     
     const format = document.getElementById('quickFormat').value;
-    const quality = parseInt(document.getElementById('qualitySlider').value) / 100;
+    const quality = 1.0; // Always 100% lossless quality
     
     this.showProgress(true, 'Gyors feldolgozás...', this.images.length);
     
@@ -996,7 +988,7 @@ class ImageFlowApp {
     }
     
     const format = document.getElementById('quickFormat').value;
-    const quality = parseInt(document.getElementById('qualitySlider').value) / 100;
+    const quality = 1.0; // Always 100% lossless quality
     const width = parseInt(document.getElementById('customWidth').value) || null;
     const height = parseInt(document.getElementById('customHeight').value) || null;
     const maintainAspect = document.getElementById('maintainAspect').checked;
@@ -1021,7 +1013,7 @@ class ImageFlowApp {
     if (!image) return;
     
     const format = document.getElementById('quickFormat').value;
-    const quality = parseInt(document.getElementById('qualitySlider').value) / 100;
+    const quality = 1.0; // Always 100% lossless quality
     
     await this.processImageWithSettings(imageId, { format, quality });
     this.updateStats();
@@ -1406,7 +1398,7 @@ class ImageFlowApp {
     }
   }
 
-  // Format conversion without resizing
+  // Format conversion without resizing - always lossless
   async convertFormat(imageId, targetFormat) {
     const image = this.images.find(img => img.id == imageId);
     if (!image) return;
@@ -1414,14 +1406,14 @@ class ImageFlowApp {
     try {
       const settings = {
         format: targetFormat,
-        quality: 1, // Maximum quality
+        quality: 1.0, // Always 100% lossless quality
         width: null,
         height: null,
         maintainAspect: true
       };
       
       await this.processImageWithSettings(imageId, settings);
-      this.showNotification(`Kép konvertálva ${targetFormat.toUpperCase()} formátumba!`, 'success');
+      this.showNotification(`Kép veszteségmentesen konvertálva ${targetFormat.toUpperCase()} formátumba!`, 'success');
       
     } catch (error) {
       console.error('Format conversion failed:', error);
