@@ -177,19 +177,75 @@ class ImageFlowApp {
 
   async setupPeerConnection() {
     try {
-      // Try local network server first, fallback to external PeerJS
-      const localServerConfig = await this.tryLocalServer();
+      // Try Bluetooth first, then local server, finally external PeerJS
+      const bluetoothSupported = await this.tryBluetooth();
       
-      if (localServerConfig) {
-        console.log('🏠 Using local network server');
-        await this.setupLocalNetworkConnection(localServerConfig);
+      if (bluetoothSupported) {
+        console.log('🔵 Using Bluetooth connection');
+        await this.setupBluetoothConnection();
       } else {
-        console.log('🌐 Falling back to external PeerJS server');
-        await this.setupExternalPeerConnection();
+        const localServerConfig = await this.tryLocalServer();
+        
+        if (localServerConfig) {
+          console.log('🏠 Using local network server');
+          await this.setupLocalNetworkConnection(localServerConfig);
+        } else {
+          console.log('🌐 Falling back to external PeerJS server');
+          await this.setupExternalPeerConnection();
+        }
       }
     } catch (error) {
       console.error('Failed to setup any connection:', error);
       this.updateConnectionStatus('disconnected', 'Offline mode');
+    }
+  }
+
+  async tryBluetooth() {
+    try {
+      // Check if Web Bluetooth API is available
+      if (!navigator.bluetooth) {
+        console.log('Web Bluetooth API not supported');
+        return false;
+      }
+
+      // Check if Bluetooth is available
+      const available = await navigator.bluetooth.getAvailability();
+      if (!available) {
+        console.log('Bluetooth not available on this device');
+        return false;
+      }
+
+      console.log('🔵 Bluetooth is available');
+      return true;
+    } catch (error) {
+      console.log('Bluetooth check failed:', error);
+      return false;
+    }
+  }
+
+  async setupBluetoothConnection() {
+    try {
+      this.updateConnectionStatus('connecting', 'Bluetooth inicializálás...');
+      
+      // Initialize Bluetooth service
+      this.bluetoothService = new BluetoothFileService();
+      await this.bluetoothService.initialize();
+      
+      this.updateConnectionStatus('connected', 'Bluetooth Ready');
+      this.generateBluetoothQRCode();
+      this.showNotification('Bluetooth kapcsolat aktív!', 'success');
+      
+    } catch (error) {
+      console.error('Bluetooth setup failed:', error);
+      this.showNotification('Bluetooth hiba - helyi szerverre váltás', 'warning');
+      
+      // Fallback to local server
+      const localServerConfig = await this.tryLocalServer();
+      if (localServerConfig) {
+        await this.setupLocalNetworkConnection(localServerConfig);
+      } else {
+        await this.setupExternalPeerConnection();
+      }
     }
   }
 
@@ -392,12 +448,154 @@ class ImageFlowApp {
   }
 
   async generateQRCode() {
-    if (this.localServer) {
+    if (this.bluetoothService) {
+      this.generateBluetoothQRCode();
+    } else if (this.localServer) {
       this.generateLocalQRCode();
     } else if (this.peer && this.peer.id) {
       this.generatePeerJSQRCode();
     } else {
       setTimeout(() => this.generateQRCode(), 1000);
+    }
+  }
+
+  async generateBluetoothQRCode() {
+    const qrContainer = document.getElementById('qrCode');
+    if (!qrContainer) return;
+
+    try {
+      // Generate pairing code for Bluetooth
+      const pairingCode = this.bluetoothService.generatePairingCode();
+      
+      // Create Bluetooth connection data
+      const bluetoothData = {
+        type: 'bluetooth',
+        app: 'ImageFlow Pro',
+        pairingCode: pairingCode,
+        deviceName: navigator.userAgent.includes('Mobile') ? 'Mobile Device' : 'Desktop',
+        timestamp: Date.now()
+      };
+      
+      const connectionString = JSON.stringify(bluetoothData);
+      
+      qrContainer.innerHTML = '<div class="loading-spinner mx-auto"></div>';
+      
+      const canvas = await QRCode.toCanvas(connectionString, {
+        width: 220,
+        margin: 3,
+        errorCorrectionLevel: 'H',
+        type: 'image/png',
+        quality: 1,
+        color: {
+          dark: '#0066cc', // Bluetooth blue color
+          light: '#ffffff'
+        }
+      });
+      
+      canvas.style.borderRadius = '12px';
+      canvas.style.boxShadow = '0 10px 25px rgba(0, 102, 204, 0.2)';
+      canvas.style.border = '3px solid #0066cc';
+      
+      qrContainer.innerHTML = '';
+      qrContainer.appendChild(canvas);
+      
+      const bluetoothInfo = document.createElement('div');
+      bluetoothInfo.className = 'text-center mt-4';
+      bluetoothInfo.innerHTML = `
+        <div class="flex items-center justify-center gap-2 mb-2">
+          <svg class="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71L13.41 12l4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+          </svg>
+          <span class="font-semibold text-blue-800 dark:text-blue-200">🔵 Bluetooth Párosítás</span>
+        </div>
+        <div class="text-xs text-slate-600 dark:text-slate-400 mb-2">Párosító kód:</div>
+        <div class="font-mono text-lg bg-blue-100 dark:bg-blue-900 px-4 py-2 rounded-lg font-bold text-blue-800 dark:text-blue-200">
+          ${pairingCode}
+        </div>
+        <div class="text-xs text-slate-500 mt-2">
+          📱 Kapcsolódjon Bluetooth-szal vagy ossza meg a QR kódot
+        </div>
+        <button onclick="app.startBluetoothPairing()" class="btn btn-primary btn-sm mt-3">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71L13.41 12l4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+          </svg>
+          Eszköz Keresése
+        </button>
+      `;
+      qrContainer.appendChild(bluetoothInfo);
+      
+    } catch (error) {
+      console.error('Bluetooth QR Code generation failed:', error);
+      this.fallbackToLocalQR();
+    }
+  }
+
+  async startBluetoothPairing() {
+    try {
+      if (!this.bluetoothService) {
+        throw new Error('Bluetooth service not available');
+      }
+
+      this.showNotification('Bluetooth eszközök keresése...', 'info');
+      
+      const device = await this.bluetoothService.scanForDevices();
+      
+      if (device) {
+        this.showNotification('Csatlakozás az eszközhöz...', 'info');
+        await this.bluetoothService.connectToDevice(device);
+        
+        this.updateDeviceList();
+        this.showNotification(`Sikeresen csatlakozva: ${device.name}`, 'success');
+      }
+      
+    } catch (error) {
+      console.error('Bluetooth pairing failed:', error);
+      
+      if (error.name === 'NotFoundError') {
+        this.showNotification('Nem található ImageFlow eszköz a közelben', 'warning');
+      } else {
+        this.showNotification('Bluetooth párosítás sikertelen', 'error');
+      }
+    }
+  }
+
+  async sendFileViaBluetooth(imageId) {
+    try {
+      if (!this.bluetoothService || this.bluetoothService.getConnectedDevices().length === 0) {
+        this.showNotification('Nincs csatlakoztatott Bluetooth eszköz!', 'error');
+        return;
+      }
+
+      const image = this.images.find(img => img.id == imageId);
+      if (!image) {
+        this.showNotification('Kép nem található!', 'error');
+        return;
+      }
+
+      const fileData = image.processedSrc || image.src;
+      const fileName = image.processed ? `processed_${image.name}` : image.name;
+
+      this.showNotification(`Bluetooth küldés: ${fileName}`, 'info');
+
+      await this.bluetoothService.sendFile(fileData, fileName, (current, total, name) => {
+        const percentage = Math.round((current / total) * 100);
+        this.showNotification(`Bluetooth: ${percentage}% - ${name}`, 'info');
+      });
+
+      this.showNotification(`Bluetooth küldés kész: ${fileName}`, 'success');
+
+    } catch (error) {
+      console.error('Bluetooth file transfer failed:', error);
+      this.showNotification('Bluetooth fájlátvitel sikertelen!', 'error');
+    }
+  }
+
+  fallbackToLocalQR() {
+    console.log('🔵 Bluetooth failed, trying local server...');
+    if (this.localServer) {
+      this.generateLocalQRCode();
+    } else {
+      this.generatePeerJSQRCode();
     }
   }
 
@@ -606,13 +804,20 @@ class ImageFlowApp {
     const connectedDevices = document.getElementById('connectedDevices');
     const transferControls = document.getElementById('transferControls');
     
-    deviceCount.textContent = this.connections.length;
-    if (connectedCount) connectedCount.textContent = this.connections.length;
-    if (connectedDevices) connectedDevices.textContent = `${this.connections.length} eszköz csatlakoztatva`;
+    // Count all connections (Bluetooth + PeerJS + Local)
+    let totalConnections = this.connections.length;
+    
+    // Add Bluetooth devices
+    const bluetoothDevices = this.bluetoothService ? this.bluetoothService.getConnectedDevices() : [];
+    totalConnections += bluetoothDevices.length;
+    
+    deviceCount.textContent = totalConnections;
+    if (connectedCount) connectedCount.textContent = totalConnections;
+    if (connectedDevices) connectedDevices.textContent = `${totalConnections} eszköz csatlakoztatva`;
     
     // Show/hide transfer controls based on connections
     if (transferControls) {
-      if (this.connections.length > 0 && this.images.length > 0) {
+      if (totalConnections > 0 && this.images.length > 0) {
         transferControls.classList.remove('hidden');
       } else {
         transferControls.classList.add('hidden');
@@ -682,6 +887,16 @@ class ImageFlowApp {
     });
     this.updateDeviceList();
     this.showNotification('Eszköz leválasztva', 'info');
+  }
+
+  getConnectedDeviceCount() {
+    let totalConnections = this.connections.length;
+    
+    // Add Bluetooth devices
+    const bluetoothDevices = this.bluetoothService ? this.bluetoothService.getConnectedDevices() : [];
+    totalConnections += bluetoothDevices.length;
+    
+    return totalConnections;
   }
 
   showDevicesTab() {
@@ -1059,17 +1274,29 @@ class ImageFlowApp {
           </div>
           
           <!-- Wireless Transfer Controls -->
-          ${this.connections.length > 0 ? `
+          ${this.getConnectedDeviceCount() > 0 ? `
             <div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700">
               <div class="flex gap-2">
-                <button onclick="app.showDeviceSelectModal('${imageData.id}')" 
-                        class="btn btn-primary btn-sm flex-1" 
-                        title="Fájl küldése eszközre">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                  </svg>
-                  Küldés (${this.connections.length})
-                </button>
+                ${this.bluetoothService && this.bluetoothService.getConnectedDevices().length > 0 ? `
+                  <button onclick="app.sendFileViaBluetooth('${imageData.id}')" 
+                          class="btn btn-primary btn-sm flex-1" 
+                          title="Küldés Bluetooth-szal">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71L13.41 12l4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+                    </svg>
+                    🔵 Bluetooth
+                  </button>
+                ` : ''}
+                ${this.connections.length > 0 ? `
+                  <button onclick="app.showDeviceSelectModal('${imageData.id}')" 
+                          class="btn btn-secondary btn-sm flex-1" 
+                          title="Fájl küldése eszközre">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                    Küldés (${this.connections.length})
+                  </button>
+                ` : ''}
               </div>
             </div>
           ` : ''}
