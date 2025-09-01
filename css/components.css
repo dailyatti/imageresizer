@@ -254,6 +254,40 @@
   box-shadow: var(--shadow-xl);
 }
 
+/* Hover Lift Effect */
+.hover-lift {
+  transition: all var(--transition-normal);
+}
+
+.hover-lift:hover {
+  transform: translateY(-8px);
+  box-shadow: var(--shadow-xl);
+}
+
+/* Drag and Drop */
+.drag-over {
+  border-color: var(--primary) !important;
+  background: rgba(102, 126, 234, 0.05);
+  transform: scale(1.02);
+}
+
+/* Button Size Variants */
+.btn-sm {
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.75rem;
+}
+
+.btn-lg {
+  padding: var(--space-4) var(--space-8);
+  font-size: 1.125rem;
+}
+
+.btn-danger {
+  background: var(--gradient-danger);
+  color: white;
+  box-shadow: var(--shadow-md);
+}
+
 /* Floating Button */
 .floating-button {
   position: fixed;

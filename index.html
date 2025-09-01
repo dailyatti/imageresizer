@@ -437,13 +437,31 @@
         <!-- Connected Devices -->
         <div class="lg:col-span-2">
           <div class="glass-effect rounded-2xl p-6">
-            <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
-              <svg class="w-6 h-6 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              Csatlakoztatott Eszközök
-              <span id="deviceCount" class="px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded-full text-sm">0</span>
-            </h2>
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold flex items-center gap-2">
+                <svg class="w-6 h-6 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Csatlakoztatott Eszközök
+                <span id="deviceCount" class="px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded-full text-sm">0</span>
+              </h2>
+              
+              <!-- Transfer Controls -->
+              <div id="transferControls" class="hidden flex gap-2">
+                <button onclick="app.sendAllFilesToFirstDevice()" class="btn btn-sm btn-primary">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                  Összes küldése
+                </button>
+                <button onclick="app.downloadAll()" class="btn btn-sm btn-secondary">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M9 5l3 3 3-3M21 21H3" />
+                  </svg>
+                  ZIP Letöltés
+                </button>
+              </div>
+            </div>
             
             <div id="deviceList" class="space-y-4">
               <!-- Connected devices will appear here -->

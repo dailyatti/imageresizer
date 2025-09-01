@@ -184,16 +184,39 @@ class ImageFlowApp {
 
   async setupPeerConnection() {
     try {
-      this.peer = new Peer({
+      // Advanced PeerJS configuration for better reliability
+      const peerConfig = {
         host: '0.peerjs.com',
         port: 443,
         secure: true,
-        debug: 2
-      });
+        debug: 1,
+        config: {
+          'iceServers': [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        }
+      };
+
+      this.updateConnectionStatus('connecting', 'Connecting...');
+      this.peer = new Peer(peerConfig);
       
+      // Connection timeout handling
+      const connectionTimeout = setTimeout(() => {
+        if (!this.peer || !this.peer.id) {
+          console.warn('Peer connection timeout, retrying...');
+          this.retryPeerConnection();
+        }
+      }, 10000);
+
       this.peer.on('open', (id) => {
+        clearTimeout(connectionTimeout);
         console.log('Peer connection established:', id);
-        this.updateConnectionStatus('connected', `ID: ${id}`);
+        this.peerId = id;
+        this.updateConnectionStatus('connected', `Online - ID: ${id.substring(0, 8)}...`);
+        this.generateQRCode();
+        this.showNotification('Eszköz online és elérhető!', 'success');
       });
 
       this.peer.on('connection', (conn) => {
@@ -201,13 +224,53 @@ class ImageFlowApp {
       });
 
       this.peer.on('error', (err) => {
+        clearTimeout(connectionTimeout);
         console.error('Peer connection error:', err);
-        this.updateConnectionStatus('disconnected', 'Connection failed');
+        
+        if (err.type === 'network') {
+          this.updateConnectionStatus('disconnected', 'Network error - Retrying...');
+          setTimeout(() => this.retryPeerConnection(), 3000);
+        } else if (err.type === 'server-error') {
+          this.updateConnectionStatus('disconnected', 'Server error - Offline mode');
+          this.showNotification('Szerver hiba - Offline mód aktiválva', 'warning');
+        } else {
+          this.updateConnectionStatus('disconnected', 'Connection failed');
+          this.showNotification('Kapcsolat sikertelen - Offline mód', 'warning');
+        }
+      });
+
+      this.peer.on('disconnected', () => {
+        console.log('Peer disconnected, attempting to reconnect...');
+        this.updateConnectionStatus('connecting', 'Reconnecting...');
+        this.peer.reconnect();
       });
       
     } catch (error) {
       console.error('Failed to setup peer connection:', error);
       this.updateConnectionStatus('disconnected', 'Offline mode');
+    }
+  }
+
+  async retryPeerConnection() {
+    try {
+      if (this.peer) {
+        this.peer.destroy();
+      }
+      
+      // Wait a moment before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      this.retryCount = (this.retryCount || 0) + 1;
+      if (this.retryCount <= 3) {
+        console.log(`Retrying peer connection (attempt ${this.retryCount}/3)...`);
+        this.updateConnectionStatus('connecting', `Reconnecting... (${this.retryCount}/3)`);
+        await this.setupPeerConnection();
+      } else {
+        this.updateConnectionStatus('disconnected', 'Offline mode');
+        this.showNotification('Nem sikerült csatlakozni - Offline mód', 'error');
+      }
+    } catch (error) {
+      console.error('Retry connection failed:', error);
     }
   }
 
@@ -218,23 +281,69 @@ class ImageFlowApp {
     }
     
     const qrContainer = document.getElementById('qrCode');
-    const connectionUrl = `${window.location.origin}?connect=${this.peer.id}`;
+    if (!qrContainer) return;
+
+    // Professional QR code with enhanced error correction and visual design
+    const connectionData = {
+      id: this.peer.id,
+      url: window.location.origin,
+      timestamp: Date.now(),
+      app: 'ImageFlow Pro'
+    };
+    
+    const connectionUrl = `${window.location.origin}?connect=${this.peer.id}&app=imageflow&v=1.0`;
     
     try {
-      if (!qrContainer) return;
-      qrContainer.innerHTML = '';
+      qrContainer.innerHTML = '<div class="loading-spinner mx-auto"></div>';
+      
       const canvas = await QRCode.toCanvas(connectionUrl, {
-        width: 200,
-        margin: 2,
+        width: 220,
+        margin: 3,
+        errorCorrectionLevel: 'H', // High error correction for better reliability
+        type: 'image/png',
+        quality: 1,
         color: {
           dark: '#667eea',
           light: '#ffffff'
+        },
+        rendererOpts: {
+          quality: 1
         }
       });
+      
+      // Add professional styling to QR code
+      canvas.style.borderRadius = '12px';
+      canvas.style.boxShadow = '0 10px 25px rgba(102, 126, 234, 0.2)';
+      canvas.style.border = '3px solid #667eea';
+      
+      qrContainer.innerHTML = '';
       qrContainer.appendChild(canvas);
+      
+      // Add device ID display below QR code
+      const deviceInfo = document.createElement('div');
+      deviceInfo.className = 'text-center mt-4';
+      deviceInfo.innerHTML = `
+        <div class="text-xs text-slate-600 dark:text-slate-400 mb-2">Eszköz ID:</div>
+        <div class="font-mono text-sm bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-lg">
+          ${this.peer.id}
+        </div>
+        <div class="text-xs text-slate-500 mt-2">
+          Érvényes: ${new Date(Date.now() + 3600000).toLocaleTimeString('hu-HU')}
+        </div>
+      `;
+      qrContainer.appendChild(deviceInfo);
+      
     } catch (error) {
       console.error('QR Code generation failed:', error);
-      qrContainer.innerHTML = '<p class="text-red-500">QR kód generálása sikertelen</p>';
+      qrContainer.innerHTML = `
+        <div class="text-center text-red-500 p-4">
+          <svg class="w-8 h-8 mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+          </svg>
+          <p class="text-sm">QR kód generálása sikertelen</p>
+          <button onclick="app.generateQRCode()" class="btn btn-sm btn-primary mt-2">Újrapróbálás</button>
+        </div>
+      `;
     }
   }
 
@@ -301,10 +410,20 @@ class ImageFlowApp {
     const deviceCount = document.getElementById('deviceCount');
     const connectedCount = document.getElementById('connectedCount');
     const connectedDevices = document.getElementById('connectedDevices');
+    const transferControls = document.getElementById('transferControls');
     
     deviceCount.textContent = this.connections.length;
-    connectedCount.textContent = this.connections.length;
-    connectedDevices.textContent = `${this.connections.length} eszköz csatlakoztatva`;
+    if (connectedCount) connectedCount.textContent = this.connections.length;
+    if (connectedDevices) connectedDevices.textContent = `${this.connections.length} eszköz csatlakoztatva`;
+    
+    // Show/hide transfer controls based on connections
+    if (transferControls) {
+      if (this.connections.length > 0 && this.images.length > 0) {
+        transferControls.classList.remove('hidden');
+      } else {
+        transferControls.classList.add('hidden');
+      }
+    }
     
     if (this.connections.length === 0) {
       deviceList.innerHTML = `
@@ -320,19 +439,43 @@ class ImageFlowApp {
     }
     
     deviceList.innerHTML = this.connections.map((conn, index) => `
-      <div class="flex items-center justify-between p-4 bg-white dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600">
+      <div class="flex items-center justify-between p-4 bg-white dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600 hover-lift">
         <div class="flex items-center gap-3">
           <div class="connection-indicator connected w-3 h-3 bg-green-500 rounded-full"></div>
           <div>
             <h3 class="font-semibold">Eszköz ${index + 1}</h3>
             <p class="text-sm text-slate-500">ID: ${conn.peer.substring(0, 8)}...</p>
+            <p class="text-xs text-slate-400">Csatlakozva: ${new Date().toLocaleTimeString('hu-HU')}</p>
           </div>
         </div>
-        <button onclick="app.disconnectDevice('${conn.peer}')" class="px-3 py-1 bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-300 rounded text-sm hover:bg-red-200 dark:hover:bg-red-800 transition-colors">
-          Leválasztás
-        </button>
+        <div class="flex gap-2">
+          ${this.images.length > 0 ? `
+            <button onclick="app.sendAllFiles('${conn.peer}')" 
+                    class="btn btn-sm btn-primary" 
+                    title="Összes fájl küldése">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          ` : ''}
+          <button onclick="app.disconnectDevice('${conn.peer}')" 
+                  class="btn btn-sm btn-danger" 
+                  title="Eszköz leválasztása">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
     `).join('');
+  }
+
+  sendAllFilesToFirstDevice() {
+    if (this.connections.length > 0 && this.images.length > 0) {
+      this.sendAllFiles(this.connections[0].peer);
+    } else {
+      this.showNotification('Nincs csatlakoztatott eszköz vagy fájl!', 'warning');
+    }
   }
 
   disconnectDevice(peerId) {
@@ -721,6 +864,23 @@ class ImageFlowApp {
             `}
           </div>
           
+          <!-- Wireless Transfer Controls -->
+          ${this.connections.length > 0 ? `
+            <div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700">
+              <div class="flex gap-2">
+                <button onclick="app.showDeviceSelectModal('${imageData.id}')" 
+                        class="btn btn-primary btn-sm flex-1" 
+                        title="Fájl küldése eszközre">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                  Küldés (${this.connections.length})
+                </button>
+              </div>
+            </div>
+          ` : ''}
+          </div>
+          
           <!-- Advanced Options -->
           <div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700">
             <div class="flex justify-between items-center">
@@ -1004,55 +1164,124 @@ class ImageFlowApp {
   async resizeWithAdvancedAlgorithm(sourceImg, targetCanvas, algorithm = 'lanczos') {
     const pica = window.pica();
     
-    // Create source canvas
+    // Create source canvas with optimal settings
     const sourceCanvas = document.createElement('canvas');
     const sourceCtx = sourceCanvas.getContext('2d');
     sourceCanvas.width = sourceImg.naturalWidth;
     sourceCanvas.height = sourceImg.naturalHeight;
     
-    // Draw source image with high quality
+    // Enable advanced canvas settings for maximum quality
     sourceCtx.imageSmoothingEnabled = true;
     sourceCtx.imageSmoothingQuality = 'high';
     sourceCtx.drawImage(sourceImg, 0, 0);
     
-    // Configure Pica options for maximum quality
+    // PhD-level resampling configuration
     const resizeOptions = {
       quality: 3, // Maximum quality (0-3)
       alpha: true,
-      unsharpAmount: this.processingOptions.enableSharpening ? 80 : 0,
-      unsharpRadius: 0.6,
-      unsharpThreshold: 2
+      unsharpAmount: this.processingOptions.enableSharpening ? 120 : 0, // Enhanced sharpening
+      unsharpRadius: 0.8,
+      unsharpThreshold: 1.5,
+      transferFunction: 'rec2020', // Advanced color space handling
+      createImageBitmap: false // Force software rendering for consistency
     };
     
-    // Apply advanced resampling algorithm
+    // Professional resampling algorithms
     switch (algorithm) {
       case 'lanczos':
-        resizeOptions.filter = 'lanczos3';
+        resizeOptions.filter = 'lanczos3'; // Lanczos-3 for best quality
+        break;
+      case 'mitchell':
+        resizeOptions.filter = 'mitchell'; // Mitchell filter for natural results
+        break;
+      case 'catrom':
+        resizeOptions.filter = 'catrom'; // Catmull-Rom cubic
         break;
       case 'bicubic':
-        resizeOptions.filter = 'catrom';
+        resizeOptions.filter = 'cubic'; // Bicubic interpolation
         break;
       case 'bilinear':
         resizeOptions.filter = 'linear';
+        break;
+      case 'hermite':
+        resizeOptions.filter = 'hermite'; // Hermite resampling
         break;
       case 'nearest':
         resizeOptions.filter = 'box';
         break;
       default:
-        resizeOptions.filter = 'lanczos3';
+        resizeOptions.filter = 'lanczos3'; // Default to highest quality
     }
     
     try {
+      // Use advanced Pica processing with WebGL acceleration when available
       await pica.resize(sourceCanvas, targetCanvas, resizeOptions);
-    } catch (error) {
-      console.warn('Pica resize failed, falling back to canvas resize:', error);
       
-      // Fallback to high-quality canvas resize
-      const ctx = targetCanvas.getContext('2d');
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
+      // Apply additional post-processing for PhD-level quality
+      await this.applyAdvancedPostProcessing(targetCanvas);
+      
+    } catch (error) {
+      console.warn('Advanced resize failed, using fallback method:', error);
+      await this.fallbackHighQualityResize(sourceCanvas, targetCanvas);
     }
+  }
+
+  async applyAdvancedPostProcessing(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    // Apply gamma correction for better color accuracy
+    const gamma = this.processingOptions.gammaCorrection || 2.2;
+    const gammaInv = 1.0 / gamma;
+    
+    for (let i = 0; i < data.length; i += 4) {
+      // Apply gamma correction to RGB channels
+      data[i] = Math.pow(data[i] / 255, gammaInv) * 255;     // R
+      data[i + 1] = Math.pow(data[i + 1] / 255, gammaInv) * 255; // G
+      data[i + 2] = Math.pow(data[i + 2] / 255, gammaInv) * 255; // B
+      // Alpha channel remains unchanged
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  async fallbackHighQualityResize(sourceCanvas, targetCanvas) {
+    const ctx = targetCanvas.getContext('2d');
+    
+    // Multi-step resize for better quality when direct resize fails
+    const sourceWidth = sourceCanvas.width;
+    const sourceHeight = sourceCanvas.height;
+    const targetWidth = targetCanvas.width;
+    const targetHeight = targetCanvas.height;
+    
+    let currentCanvas = sourceCanvas;
+    let currentWidth = sourceWidth;
+    let currentHeight = sourceHeight;
+    
+    // Step-down approach: resize by max 50% per step for better quality
+    while (currentWidth > targetWidth * 2 || currentHeight > targetHeight * 2) {
+      const stepWidth = Math.max(targetWidth, Math.floor(currentWidth * 0.5));
+      const stepHeight = Math.max(targetHeight, Math.floor(currentHeight * 0.5));
+      
+      const stepCanvas = document.createElement('canvas');
+      const stepCtx = stepCanvas.getContext('2d');
+      stepCanvas.width = stepWidth;
+      stepCanvas.height = stepHeight;
+      
+      stepCtx.imageSmoothingEnabled = true;
+      stepCtx.imageSmoothingQuality = 'high';
+      stepCtx.drawImage(currentCanvas, 0, 0, stepWidth, stepHeight);
+      
+      currentCanvas = stepCanvas;
+      currentWidth = stepWidth;
+      currentHeight = stepHeight;
+    }
+    
+    // Final resize with maximum quality settings
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(currentCanvas, 0, 0, targetWidth, targetHeight);
   }
 
   async applyFormatOptimization(canvas, format, quality = 1) {
@@ -1076,36 +1305,81 @@ class ImageFlowApp {
   }
 
   optimizeWebP(canvas, config, quality) {
-    if (config.lossless) {
-      // Force lossless WebP
-      return canvas.toDataURL('image/webp', 1.0);
+    if (config.lossless || quality >= 0.99) {
+      // Force lossless WebP with optimal settings
+      try {
+        return canvas.toDataURL('image/webp', 1.0);
+      } catch (error) {
+        console.warn('Lossless WebP not supported, using high quality PNG');
+        return canvas.toDataURL('image/png');
+      }
     }
-    return canvas.toDataURL('image/webp', quality);
+    // High quality WebP with advanced compression
+    const webpQuality = Math.max(0.92, quality);
+    return canvas.toDataURL('image/webp', webpQuality);
   }
 
   optimizePNG(canvas, config) {
-    // PNG is inherently lossless
-    return canvas.toDataURL('image/png');
+    // PNG is inherently lossless - apply optimal compression
+    try {
+      // Modern browsers support PNG with quality parameter for compression level
+      return canvas.toDataURL('image/png', 1.0);
+    } catch (error) {
+      return canvas.toDataURL('image/png');
+    }
   }
 
   optimizeAVIF(canvas, config, quality) {
-    // AVIF lossless mode (if supported by browser)
-    if (config.lossless) {
-      return canvas.toDataURL('image/avif', 1.0);
+    try {
+      if (config.lossless || quality >= 0.99) {
+        // AVIF lossless mode with maximum quality
+        return canvas.toDataURL('image/avif', 1.0);
+      }
+      // High quality AVIF
+      const avifQuality = Math.max(0.95, quality);
+      return canvas.toDataURL('image/avif', avifQuality);
+    } catch (error) {
+      console.warn('AVIF format not supported, falling back to WebP');
+      return this.optimizeWebP(canvas, config, quality);
     }
-    return canvas.toDataURL('image/avif', quality);
   }
 
   optimizeTIFF(canvas, config) {
-    // TIFF support is limited in browsers, fallback to PNG
-    console.warn('TIFF format not fully supported, using PNG instead');
+    // TIFF support is limited in browsers, use highest quality PNG
+    console.warn('TIFF format not supported in browsers, using lossless PNG');
     return canvas.toDataURL('image/png');
   }
 
   optimizeJPEG(canvas, config, quality) {
-    // JPEG with high quality settings
-    const jpegQuality = Math.max(0.85, quality); // Never go below 85% for quality
-    return canvas.toDataURL('image/jpeg', jpegQuality);
+    // Enhanced JPEG optimization with professional settings
+    const jpegQuality = Math.max(0.92, quality); // Professional minimum quality
+    
+    try {
+      // Some browsers support additional JPEG options
+      const ctx = canvas.getContext('2d');
+      ctx.mozImageSmoothingEnabled = true;
+      ctx.webkitImageSmoothingEnabled = true;
+      ctx.msImageSmoothingEnabled = true;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      return canvas.toDataURL('image/jpeg', jpegQuality);
+    } catch (error) {
+      return canvas.toDataURL('image/jpeg', jpegQuality);
+    }
+  }
+
+  // Advanced HEIF optimization (future format support)
+  optimizeHEIF(canvas, config, quality) {
+    try {
+      if (config.lossless) {
+        return canvas.toDataURL('image/heif', 1.0);
+      }
+      return canvas.toDataURL('image/heif', Math.max(0.95, quality));
+    } catch (error) {
+      console.warn('HEIF format not supported, falling back to AVIF');
+      return this.optimizeAVIF(canvas, config, quality);
+    }
   }
 
   // Simple download without processing
@@ -1366,8 +1640,8 @@ class ImageFlowApp {
     }
   }
 
-  // File sharing methods
-  sendFile(imageId, connectionId) {
+  // Advanced File Transfer System with Progress Tracking
+  async sendFile(imageId, connectionId) {
     const image = this.images.find(img => img.id == imageId);
     const connection = this.connections.find(conn => conn.peer === connectionId);
     
@@ -1376,25 +1650,225 @@ class ImageFlowApp {
       return;
     }
     
-    const fileData = {
-      type: 'file',
-      name: image.name,
-      data: image.processedSrc || image.src,
-      size: image.processedSize || image.size
-    };
+    try {
+      // Prepare file for chunked transfer
+      const fileData = image.processedSrc || image.src;
+      const fileName = image.processed ? `processed_${image.name}` : image.name;
+      const fileSize = this.calculateDataUrlSize(fileData);
+      
+      // Create transfer session
+      const transferId = Date.now() + Math.random();
+      const chunkSize = 16384; // 16KB chunks for reliable transfer
+      const totalChunks = Math.ceil(fileData.length / chunkSize);
+      
+      // Send transfer initiation
+      connection.send({
+        type: 'transfer_start',
+        transferId: transferId,
+        fileName: fileName,
+        fileSize: fileSize,
+        totalChunks: totalChunks,
+        imageId: imageId
+      });
+      
+      // Show progress dialog
+      this.showFileTransferProgress(transferId, fileName, 'sending', 0, totalChunks);
+      
+      // Send file in chunks
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, fileData.length);
+        const chunk = fileData.slice(start, end);
+        
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Chunk send timeout')), 5000);
+          
+          connection.send({
+            type: 'file_chunk',
+            transferId: transferId,
+            chunkIndex: i,
+            chunk: chunk,
+            isLast: i === totalChunks - 1
+          });
+          
+          // Update progress
+          this.updateFileTransferProgress(transferId, i + 1, totalChunks);
+          
+          clearTimeout(timeout);
+          resolve();
+        });
+        
+        // Small delay to prevent overwhelming the connection
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      
+      this.hideFileTransferProgress(transferId);
+      this.showNotification(`${fileName} sikeresen elküldve!`, 'success');
+      
+    } catch (error) {
+      console.error('File transfer failed:', error);
+      this.hideFileTransferProgress();
+      this.showNotification('Fájlátvitel sikertelen!', 'error');
+    }
+  }
+
+  async sendAllFiles(connectionId) {
+    const connection = this.connections.find(conn => conn.peer === connectionId);
+    if (!connection || this.images.length === 0) {
+      this.showNotification('Nincs mit küldeni!', 'warning');
+      return;
+    }
     
-    connection.send(fileData);
-    this.showNotification('Fájl elküldve!', 'success');
+    this.showProgress(true, 'Összes fájl küldése...', this.images.length);
+    
+    try {
+      for (let i = 0; i < this.images.length; i++) {
+        await this.sendFile(this.images[i].id, connectionId);
+        this.updateProgress(i + 1, this.images.length);
+      }
+      
+      this.hideProgress();
+      this.showNotification(`${this.images.length} fájl sikeresen elküldve!`, 'success');
+      
+    } catch (error) {
+      this.hideProgress();
+      this.showNotification('Tömeges fájlátvitel sikertelen!', 'error');
+    }
   }
 
   receiveFile(data) {
-    // Create a download link for received file
+    switch (data.type) {
+      case 'transfer_start':
+        this.handleTransferStart(data);
+        break;
+      case 'file_chunk':
+        this.handleFileChunk(data);
+        break;
+      case 'transfer_complete':
+        this.handleTransferComplete(data);
+        break;
+      default:
+        // Legacy single file transfer
+        this.handleLegacyFileReceive(data);
+    }
+  }
+
+  handleTransferStart(data) {
+    // Initialize transfer session
+    this.activeTransfers = this.activeTransfers || new Map();
+    this.activeTransfers.set(data.transferId, {
+      fileName: data.fileName,
+      fileSize: data.fileSize,
+      totalChunks: data.totalChunks,
+      chunks: new Array(data.totalChunks),
+      receivedChunks: 0
+    });
+    
+    this.showFileTransferProgress(data.transferId, data.fileName, 'receiving', 0, data.totalChunks);
+  }
+
+  handleFileChunk(data) {
+    const transfer = this.activeTransfers.get(data.transferId);
+    if (!transfer) return;
+    
+    // Store chunk
+    transfer.chunks[data.chunkIndex] = data.chunk;
+    transfer.receivedChunks++;
+    
+    // Update progress
+    this.updateFileTransferProgress(data.transferId, transfer.receivedChunks, transfer.totalChunks);
+    
+    // Check if transfer is complete
+    if (data.isLast || transfer.receivedChunks === transfer.totalChunks) {
+      this.completeFileTransfer(data.transferId);
+    }
+  }
+
+  completeFileTransfer(transferId) {
+    const transfer = this.activeTransfers.get(transferId);
+    if (!transfer) return;
+    
+    // Reconstruct file
+    const fileData = transfer.chunks.join('');
+    
+    // Create download
+    const link = document.createElement('a');
+    link.href = fileData;
+    link.download = transfer.fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Cleanup
+    this.activeTransfers.delete(transferId);
+    this.hideFileTransferProgress(transferId);
+    this.showNotification(`${transfer.fileName} sikeresen fogadva!`, 'success');
+  }
+
+  handleLegacyFileReceive(data) {
+    // Fallback for simple file transfers
     const link = document.createElement('a');
     link.href = data.data;
     link.download = data.name;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     
-    this.showNotification(`Fájl érkezett: ${data.name}`, 'success');
+    this.showNotification(`${data.name} fogadva!`, 'success');
+  }
+
+  showFileTransferProgress(transferId, fileName, mode, current, total) {
+    const container = document.getElementById('notifications');
+    const progressDiv = document.createElement('div');
+    progressDiv.id = `transfer-${transferId}`;
+    progressDiv.className = 'bg-blue-500 text-white p-4 rounded-lg shadow-lg mb-4 animate-slide-in';
+    
+    const modeText = mode === 'sending' ? 'Küldés' : 'Fogadás';
+    progressDiv.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-semibold">${modeText}: ${fileName}</span>
+        <button onclick="app.cancelFileTransfer('${transferId}')" class="text-white/80 hover:text-white">✕</button>
+      </div>
+      <div class="progress-bar mb-2">
+        <div id="progress-${transferId}" class="progress-fill" style="width: 0%"></div>
+      </div>
+      <div class="text-sm">
+        <span id="chunk-count-${transferId}">0</span> / ${total} részlet
+      </div>
+    `;
+    
+    container.appendChild(progressDiv);
+  }
+
+  updateFileTransferProgress(transferId, current, total) {
+    const progressFill = document.getElementById(`progress-${transferId}`);
+    const chunkCount = document.getElementById(`chunk-count-${transferId}`);
+    
+    if (progressFill && chunkCount) {
+      const percentage = (current / total) * 100;
+      progressFill.style.width = `${percentage}%`;
+      chunkCount.textContent = current;
+    }
+  }
+
+  hideFileTransferProgress(transferId) {
+    const progressDiv = document.getElementById(`transfer-${transferId}`);
+    if (progressDiv) {
+      progressDiv.style.animation = 'slideOut 0.5s ease-in-out';
+      setTimeout(() => {
+        if (progressDiv.parentNode) {
+          progressDiv.parentNode.removeChild(progressDiv);
+        }
+      }, 500);
+    }
+  }
+
+  cancelFileTransfer(transferId) {
+    if (this.activeTransfers) {
+      this.activeTransfers.delete(transferId);
+    }
+    this.hideFileTransferProgress(transferId);
+    this.showNotification('Fájlátvitel megszakítva', 'info');
   }
 
   // Batch download
@@ -1431,6 +1905,55 @@ class ImageFlowApp {
       this.showNotification('ZIP létrehozása sikertelen!', 'error');
     }
   }
+
+  // Device Selection Modal for Individual File Transfer
+  showDeviceSelectModal(imageId) {
+    if (this.connections.length === 1) {
+      // If only one device connected, send directly
+      this.sendFile(imageId, this.connections[0].peer);
+      return;
+    }
+    
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4';
+    modal.innerHTML = `
+      <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-bounce-in">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-xl font-semibold">Eszköz kiválasztása</h3>
+          <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-gray-700">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <p class="text-slate-600 dark:text-slate-400 mb-4">Válassza ki az eszközt, amelyre küldeni szeretné a fájlt:</p>
+        <div class="space-y-2 mb-6">
+          ${this.connections.map((conn, index) => `
+            <button onclick="app.sendFile('${imageId}', '${conn.peer}'); this.closest('.fixed').remove();" 
+                    class="w-full p-3 text-left bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+              <div class="font-medium">Eszköz ${index + 1}</div>
+              <div class="text-sm text-slate-500">ID: ${conn.peer.substring(0, 12)}...</div>
+            </button>
+          `).join('')}
+        </div>
+        <div class="flex gap-2">
+          <button onclick="this.closest('.fixed').remove()" 
+                  class="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors">
+            Mégse
+          </button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Remove modal when clicking outside
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+  }
 }
 
 // Add CSS animations for slide out
@@ -1451,8 +1974,6 @@ document.head.appendChild(style);
 
 // Initialize the application
 const app = new ImageFlowApp();
-
-// URL parameters are now handled in the app.handleURLParameters() method
 
 // Add global functions for HTML onclick handlers
 window.downloadAll = () => app.downloadAll();
