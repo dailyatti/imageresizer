@@ -261,5 +261,81 @@
 .text-gray-500 { color: var(--gray-500); }
 .text-gray-600 { color: var(--gray-600); }
 .text-gray-700 { color: var(--gray-700); }
+.text-gray-750 { color: var(--gray-750); }
 .text-gray-800 { color: var(--gray-800); }
 .text-gray-900 { color: var(--gray-900); }
+
+/* Additional background colors */
+.bg-gray-50 { background-color: var(--gray-50); }
+.bg-gray-100 { background-color: var(--gray-100); }
+.bg-gray-200 { background-color: var(--gray-200); }
+.bg-gray-300 { background-color: var(--gray-300); }
+.bg-gray-400 { background-color: var(--gray-400); }
+.bg-gray-500 { background-color: var(--gray-500); }
+.bg-gray-600 { background-color: var(--gray-600); }
+.bg-gray-700 { background-color: var(--gray-700); }
+.bg-gray-750 { background-color: var(--gray-750); }
+.bg-gray-800 { background-color: var(--gray-800); }
+.bg-gray-900 { background-color: var(--gray-900); }
+
+/* Border colors */
+.border-gray-200 { border-color: var(--gray-200); }
+.border-gray-300 { border-color: var(--gray-300); }
+.border-gray-600 { border-color: var(--gray-600); }
+.border-gray-700 { border-color: var(--gray-700); }
+
+/* Additional utility classes */
+.font-mono { font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+
+.text-xs { font-size: 0.75rem; }
+.text-sm { font-size: 0.875rem; }
+.text-base { font-size: 1rem; }
+.text-lg { font-size: 1.125rem; }
+.text-xl { font-size: 1.25rem; }
+.text-2xl { font-size: 1.5rem; }
+
+.border { border-width: 1px; border-style: solid; }
+.border-t { border-top-width: 1px; border-top-style: solid; }
+.border-b { border-bottom-width: 1px; border-bottom-style: solid; }
+
+.max-w-md { max-width: 28rem; }
+.max-w-lg { max-width: 32rem; }
+.max-w-xl { max-width: 36rem; }
+
+.mx-auto { margin-left: auto; margin-right: auto; }
+
+/* Dark mode utilities */
+.dark .text-gray-100 { color: var(--gray-100); }
+.dark .text-gray-200 { color: var(--gray-200); }
+.dark .text-gray-300 { color: var(--gray-300); }
+.dark .text-gray-400 { color: var(--gray-400); }
+.dark .text-gray-500 { color: var(--gray-500); }
+
+.dark .bg-gray-50 { background-color: var(--gray-900); }
+.dark .bg-gray-100 { background-color: var(--gray-800); }
+.dark .bg-gray-200 { background-color: var(--gray-700); }
+.dark .bg-gray-700 { background-color: var(--gray-600); }
+.dark .bg-gray-800 { background-color: var(--gray-750); }
+.dark .bg-gray-900 { background-color: var(--gray-200); }
+
+.dark .border-gray-200 { border-color: var(--gray-700); }
+.dark .border-gray-300 { border-color: var(--gray-600); }
+.dark .border-gray-600 { border-color: var(--gray-500); }
+.dark .border-gray-700 { border-color: var(--gray-600); }
+
+/* Flex utilities */
+.flex-1 { flex: 1 1 0%; }
+.flex-shrink-0 { flex-shrink: 0; }
+.flex-grow { flex-grow: 1; }
+
+/* Additional spacing */
+.space-y-2 > * + * { margin-top: var(--space-2); }
+.space-y-3 > * + * { margin-top: var(--space-3); }
+.space-y-4 > * + * { margin-top: var(--space-4); }
+.space-y-6 > * + * { margin-top: var(--space-6); }
+
+/* Min width/height */
+.min-h-44 { min-height: 11rem; }
+.min-w-44 { min-width: 11rem; }

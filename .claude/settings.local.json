@@ -14,7 +14,10 @@
       "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)",
       "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)",
       "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)",
-      "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)"
+      "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)",
+      "mcp__ide__getDiagnostics",
+      "Bash(node:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
