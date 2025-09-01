@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir)",
+      "Bash(python:*)",
+      "Bash(git remote add:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Read(C:\\Users\\djatt\\Downloads/**)",
+      "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)",
+      "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)",
+      "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)",
+      "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)",
+      "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)",
+      "Read(C:\\Users\\djatt\\Downloads\\imageflow-pro/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
