@@ -1,5 +1,5 @@
 // Bluetooth File Service for ImageFlow Pro
-// Implements Web Bluetooth API for direct device-to-device file sharing
+// Implements Web Bluetooth API for device discovery and simple file transfer
 
 class BluetoothFileService {
   constructor() {
@@ -10,8 +10,8 @@ class BluetoothFileService {
     this.connectedDevices = new Set();
     this.transferQueue = [];
     this.isTransferring = false;
-    
-    // Custom UUID for ImageFlow Pro service
+
+    // Custom UUIDs for ImageFlow Pro service (placeholder values)
     this.SERVICE_UUID = '12345678-1234-5678-9abc-123456789abc';
     this.CHARACTERISTICS = {
       FILE_INFO: '12345678-1234-5678-9abc-123456789ab1',
@@ -22,173 +22,133 @@ class BluetoothFileService {
   }
 
   async initialize() {
-    try {
-      if (!navigator.bluetooth) {
-        throw new Error('Web Bluetooth API not supported');
-      }
-
-      console.log('🔵 Initializing Bluetooth service...');
-      
-      // Start advertising our service
-      await this.startAdvertising();
-      
-      console.log('🔵 Bluetooth service initialized successfully');
-      return true;
-      
-    } catch (error) {
-      console.error('Bluetooth initialization failed:', error);
-      throw error;
+    if (!navigator.bluetooth) {
+      throw new Error('Web Bluetooth API not supported');
     }
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      console.warn('Bluetooth works only in secure contexts (HTTPS or localhost).');
+    }
+    console.log('Initializing Bluetooth service...');
+    await this.startAdvertising();
+    console.log('Bluetooth service initialized successfully');
+    return true;
   }
 
   async startAdvertising() {
-    try {
-      // Note: Web Bluetooth API currently doesn't support advertising
-      // We'll use a different approach - scan for existing services
-      console.log('🔵 Ready for Bluetooth connections');
-      
-      // Listen for availability changes
-      navigator.bluetooth.addEventListener('availabilitychanged', (event) => {
-        console.log(`Bluetooth availability: ${event.value}`);
-      });
-      
-      return true;
-    } catch (error) {
-      console.error('Bluetooth advertising failed:', error);
-      throw error;
-    }
+    // Browsers cannot advertise as a BLE peripheral.
+    // We prepare to scan/connect and listen for availability changes.
+    navigator.bluetooth.addEventListener('availabilitychanged', (event) => {
+      console.log(`Bluetooth availability: ${event.value}`);
+    });
+    console.log('Ready for Bluetooth connections');
+    return true;
   }
 
   async scanForDevices() {
+    console.log('Scanning for Bluetooth devices...');
+
+    // Prefer previously paired devices to avoid prompts
     try {
-      console.log('🔵 Scanning for ImageFlow Pro devices...');
-      
+      const known = await this.getPairedDevices();
+      if (known && known.length) {
+        console.log(`Found ${known.length} previously paired device(s)`);
+        return known[0];
+      }
+    } catch (_) {}
+
+    // Primary: try by custom service or name prefix
+    try {
       const device = await navigator.bluetooth.requestDevice({
         filters: [
           { services: [this.SERVICE_UUID] },
           { namePrefix: 'ImageFlow' }
         ],
-        optionalServices: [this.SERVICE_UUID]
+        optionalServices: [this.SERVICE_UUID, 'device_information', 'battery_service']
       });
-
-      console.log('🔵 Found device:', device.name);
+      console.log('Found device:', device.name || device.id);
       return device;
-      
-    } catch (error) {
-      if (error.name === 'NotFoundError') {
-        console.log('🔵 No ImageFlow devices found or user cancelled');
-      } else {
-        console.error('Device scan failed:', error);
-      }
-      throw error;
+    } catch (errPrimary) {
+      if (errPrimary && errPrimary.name !== 'NotFoundError') throw errPrimary;
+      // Fallback: widen scope (user selects from list)
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [this.SERVICE_UUID, 'device_information', 'battery_service']
+      });
+      console.log('Selected device:', device.name || device.id);
+      return device;
     }
   }
 
   async connectToDevice(device) {
-    try {
-      this.device = device;
-      
-      // Add disconnect handler
-      device.addEventListener('gattserverdisconnected', () => {
-        console.log('🔵 Device disconnected');
-        this.handleDeviceDisconnected(device);
-      });
+    this.device = device;
 
-      console.log('🔵 Connecting to device...');
-      this.server = await device.gatt.connect();
-      
-      console.log('🔵 Getting service...');
+    device.addEventListener('gattserverdisconnected', () => {
+      console.log('Device disconnected');
+      this.handleDeviceDisconnected(device);
+    });
+
+    console.log('Connecting to device...');
+    this.server = await device.gatt.connect();
+
+    console.log('Getting primary service...');
+    // Try custom service first
+    try {
       this.service = await this.server.getPrimaryService(this.SERVICE_UUID);
-      
-      // Get all characteristics
+    } catch (_) {
+      // Try a common service so the connection is still established
+      try {
+        this.service = await this.server.getPrimaryService('device_information');
+      } catch (_) {
+        // If neither available, proceed — some devices may expose only notify characteristics
+      }
+    }
+
+    // Try to resolve characteristics if custom service is available
+    if (this.service) {
       for (const [name, uuid] of Object.entries(this.CHARACTERISTICS)) {
         try {
           const characteristic = await this.service.getCharacteristic(uuid);
           this.characteristics.set(name, characteristic);
-          
-          // Enable notifications for status and data characteristics
           if (name === 'TRANSFER_STATUS' || name === 'FILE_DATA') {
             await characteristic.startNotifications();
             characteristic.addEventListener('characteristicvaluechanged', (event) => {
               this.handleCharacteristicChanged(name, event);
             });
           }
-        } catch (error) {
-          console.warn(`Could not get characteristic ${name}:`, error);
+        } catch (_) {
+          // Characteristic not available on this device
         }
       }
-
-      this.connectedDevices.add(device);
-      console.log('🔵 Successfully connected to device');
-      
-      return true;
-      
-    } catch (error) {
-      console.error('Connection failed:', error);
-      throw error;
     }
+
+    this.connectedDevices.add(device);
+    console.log('Successfully connected to device');
+    return true;
   }
 
   async sendFile(fileData, fileName, progressCallback) {
+    if (!this.characteristics.has('FILE_INFO') || !this.characteristics.has('FILE_DATA')) {
+      throw new Error('Bluetooth file transfer not supported by the target device');
+    }
+
     try {
-      if (!this.device || !this.device.gatt.connected) {
-        throw new Error('No connected device');
-      }
+      // Send file info (name, size)
+      const info = { fileName, size: fileData.length, timestamp: Date.now() };
+      await this.writeCharacteristic('FILE_INFO', JSON.stringify(info));
 
-      console.log(`🔵 Sending file: ${fileName}`);
-      
-      // Prepare file info
-      const fileInfo = {
-        name: fileName,
-        size: fileData.length,
-        timestamp: Date.now(),
-        chunks: Math.ceil(fileData.length / 512) // 512 bytes per chunk
-      };
-
-      // Send file info
-      await this.writeCharacteristic('FILE_INFO', JSON.stringify(fileInfo));
-      
-      // Send file data in chunks
-      const chunkSize = 512; // Bluetooth LE max is usually 20-512 bytes
+      const chunkSize = 512; // typical upper bound for BLE write
       const totalChunks = Math.ceil(fileData.length / chunkSize);
-      
-      for (let i = 0; i < totalChunks; i++) {
-        const start = i * chunkSize;
-        const end = Math.min(start + chunkSize, fileData.length);
-        const chunk = fileData.slice(start, end);
-        
-        // Create chunk header
-        const chunkData = new Uint8Array(chunk.length + 4);
-        const view = new DataView(chunkData.buffer);
-        view.setUint16(0, i); // Chunk index
-        view.setUint16(2, chunk.length); // Chunk length
-        
-        // Copy chunk data
-        for (let j = 0; j < chunk.length; j++) {
-          chunkData[4 + j] = chunk.charCodeAt(j);
-        }
-        
-        await this.writeCharacteristic('FILE_DATA', chunkData);
-        
-        // Update progress
-        if (progressCallback) {
-          progressCallback(i + 1, totalChunks, fileName);
-        }
-        
-        // Small delay to prevent overwhelming
-        await new Promise(resolve => setTimeout(resolve, 10));
+
+      for (let i = 0; i < fileData.length; i += chunkSize) {
+        const chunk = fileData.slice(i, i + chunkSize);
+        await this.writeCharacteristic('FILE_DATA', chunk);
+        if (progressCallback) progressCallback(Math.min(i + chunkSize, fileData.length), fileData.length, fileName);
+        await new Promise(r => setTimeout(r, 8));
       }
-      
-      // Send transfer complete status
-      await this.writeCharacteristic('TRANSFER_STATUS', JSON.stringify({
-        status: 'complete',
-        fileName: fileName,
-        timestamp: Date.now()
-      }));
-      
-      console.log('🔵 File transfer completed');
+
+      await this.writeCharacteristic('TRANSFER_STATUS', JSON.stringify({ status: 'complete', fileName, timestamp: Date.now() }));
+      console.log('File transfer completed');
       return true;
-      
     } catch (error) {
       console.error('File transfer failed:', error);
       throw error;
@@ -196,55 +156,45 @@ class BluetoothFileService {
   }
 
   async writeCharacteristic(characteristicName, data) {
-    try {
-      const characteristic = this.characteristics.get(characteristicName);
-      if (!characteristic) {
-        throw new Error(`Characteristic ${characteristicName} not found`);
-      }
+    const characteristic = this.characteristics.get(characteristicName);
+    if (!characteristic) throw new Error(`Characteristic ${characteristicName} not found`);
 
-      let buffer;
-      if (typeof data === 'string') {
-        buffer = new TextEncoder().encode(data);
-      } else if (data instanceof Uint8Array) {
-        buffer = data;
-      } else {
-        buffer = new TextEncoder().encode(JSON.stringify(data));
-      }
+    let buffer;
+    if (typeof data === 'string') {
+      buffer = new TextEncoder().encode(data);
+    } else if (data instanceof Uint8Array) {
+      buffer = data;
+    } else {
+      buffer = new TextEncoder().encode(JSON.stringify(data));
+    }
 
-      // Split into chunks if too large (max 512 bytes)
-      const maxSize = 512;
-      if (buffer.length <= maxSize) {
-        await characteristic.writeValue(buffer);
-      } else {
-        for (let i = 0; i < buffer.length; i += maxSize) {
-          const chunk = buffer.slice(i, i + maxSize);
-          await characteristic.writeValue(chunk);
-          await new Promise(resolve => setTimeout(resolve, 10));
-        }
+    const max = 512;
+    if (buffer.length <= max) {
+      await characteristic.writeValue(buffer);
+    } else {
+      for (let i = 0; i < buffer.length; i += max) {
+        const chunk = buffer.slice(i, i + max);
+        await characteristic.writeValue(chunk);
+        await new Promise(r => setTimeout(r, 8));
       }
-      
-    } catch (error) {
-      console.error(`Write to ${characteristicName} failed:`, error);
-      throw error;
     }
   }
 
   handleCharacteristicChanged(characteristicName, event) {
     const value = event.target.value;
-    
     try {
       switch (characteristicName) {
         case 'TRANSFER_STATUS':
-          const status = JSON.parse(new TextDecoder().decode(value));
-          this.handleTransferStatus(status);
+          try {
+            const status = JSON.parse(new TextDecoder().decode(value));
+            this.handleTransferStatus(status);
+          } catch (_) {}
           break;
-          
         case 'FILE_DATA':
           this.handleFileData(value);
           break;
-          
         default:
-          console.log(`🔵 Characteristic ${characteristicName} changed`);
+          console.log(`Characteristic ${characteristicName} changed`);
       }
     } catch (error) {
       console.error('Characteristic change handler failed:', error);
@@ -252,60 +202,44 @@ class BluetoothFileService {
   }
 
   handleTransferStatus(status) {
-    console.log('🔵 Transfer status:', status);
-    
-    // Notify the main app about transfer status
-    if (window.app) {
+    console.log('Transfer status:', status);
+    if (typeof window !== 'undefined' && window.app) {
       window.app.showNotification(
-        `Bluetooth: ${status.status} - ${status.fileName}`,
+        `Bluetooth: ${status.status} - ${status.fileName || ''}`,
         status.status === 'complete' ? 'success' : 'info'
       );
     }
   }
 
   handleFileData(data) {
-    // Handle incoming file data
-    console.log('🔵 Receiving file data chunk');
-    
-    // This would be expanded to reconstruct the file
-    // For now, just log the data
+    // Receiver-side reconstruction would go here (not implemented for web-only peer)
+    console.log('Receiving file data chunk');
   }
 
   handleDeviceDisconnected(device) {
-    console.log('🔵 Device disconnected:', device.name);
     this.connectedDevices.delete(device);
-    
-    if (window.app) {
+    if (typeof window !== 'undefined' && window.app) {
       window.app.showNotification('Bluetooth eszköz leválasztva', 'warning');
-      window.app.updateDeviceList();
+      window.app.updateDeviceList && window.app.updateDeviceList();
     }
   }
 
   async disconnect() {
     try {
-      if (this.device && this.device.gatt.connected) {
+      if (this.device && this.device.gatt?.connected) {
         await this.device.gatt.disconnect();
       }
-      
-      this.device = null;
-      this.server = null;
-      this.service = null;
-      this.characteristics.clear();
-      this.connectedDevices.clear();
-      
-      console.log('🔵 Bluetooth disconnected');
-      
-    } catch (error) {
-      console.error('Bluetooth disconnect failed:', error);
-    }
+    } catch (_) {}
+    this.device = null;
+    this.server = null;
+    this.service = null;
+    this.characteristics.clear();
+    this.connectedDevices.clear();
+    console.log('Bluetooth disconnected');
   }
 
   getConnectedDevices() {
-    return Array.from(this.connectedDevices).map(device => ({
-      id: device.id,
-      name: device.name || 'Unknown Device',
-      connected: device.gatt?.connected || false
-    }));
+    return Array.from(this.connectedDevices).map(d => ({ id: d.id, name: d.name || 'Unknown Device', connected: !!(d.gatt && d.gatt.connected) }));
   }
 
   isSupported() {
@@ -313,24 +247,43 @@ class BluetoothFileService {
   }
 
   async getAvailability() {
-    try {
-      return await navigator.bluetooth.getAvailability();
-    } catch (error) {
-      return false;
-    }
+    try { return await navigator.bluetooth.getAvailability(); } catch (_) { return false; }
   }
 
-  // Generate a simple pairing code for manual connection
+  async getPairedDevices() {
+    try {
+      if (!navigator.bluetooth.getDevices) return [];
+      const devices = await navigator.bluetooth.getDevices();
+      return devices || [];
+    } catch (_) { return []; }
+  }
+
+  async autoReconnect() {
+    try {
+      const devices = await this.getPairedDevices();
+      for (const dev of devices) {
+        try {
+          await this.connectToDevice(dev);
+          return true;
+        } catch (_) {}
+      }
+      return false;
+    } catch (_) { return false; }
+  }
+
+  // Simple pairing code helper
   generatePairingCode() {
     return Math.random().toString(36).substr(2, 8).toUpperCase();
   }
 }
 
-// Export for use in main application
+// Export for browser usage
 if (typeof window !== 'undefined') {
   window.BluetoothFileService = BluetoothFileService;
 }
 
+// Export for Node (tests)
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = BluetoothFileService;
 }
+

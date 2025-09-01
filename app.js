@@ -231,6 +231,15 @@ class ImageFlowApp {
       this.bluetoothService = new BluetoothFileService();
       await this.bluetoothService.initialize();
       
+      // Try to reconnect automatically to previously paired devices
+      const reconnected = await this.bluetoothService.autoReconnect();
+      if (reconnected) {
+        this.updateConnectionStatus('connected', 'Bluetooth Connected');
+        this.updateDeviceList && this.updateDeviceList();
+        this.showNotification('Korábban párosított Bluetooth eszközhöz kapcsolódva', 'success');
+        return;
+      }
+      
       this.updateConnectionStatus('connected', 'Bluetooth Ready');
       this.generateBluetoothQRCode();
       this.showNotification('Bluetooth kapcsolat aktív!', 'success');
